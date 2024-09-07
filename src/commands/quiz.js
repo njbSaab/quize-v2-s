@@ -1,46 +1,58 @@
-const { getQuestions } = require("../controllers/quizController"); // Подключаем контроллер
+const { getQuestions } = require("../controllers/quizController");
 const { getUserState, updateUserState } = require("../models/userState");
+
+let isQuizProcessing = false;
 
 const quizCommand = (ctx) => {
   const userId = ctx.message.from.id;
   const userState = getUserState(userId);
 
-  console.log(`Пользователь ${userId} вызвал команду /quiz`);
-  console.log("userState:", userState);
-
-  if (userState.step === "begined_quiz") {
-    console.log(`Состояние пользователя: ${userState.step}`);
-    console.log("Запрашиваем вопросы...");
-
-    // Загружаем вопросы через контроллер
-    getQuestions((err, questions) => {
-      if (err) {
-        console.error("Ошибка при загрузке вопросов:", err);
-        ctx.reply("Произошла ошибка при загрузке вопросов.");
-        return;
-      }
-
-      if (!questions || questions.length === 0) {
-        console.log("Вопросы не найдены.");
-        ctx.reply("Вопросов не найдено.");
-        return;
-      }
-
-      // Если вопросы успешно получены, логируем и отправляем их
-      console.log("Вопросы получены:", questions);
-
-      const firstQuestion = questions[0];
-      ctx.reply(`Вопрос: ${firstQuestion.question}`);
-      ctx.reply(`1. ${firstQuestion.var1}`);
-      ctx.reply(`2. ${firstQuestion.var2}`);
-      ctx.reply(`3. ${firstQuestion.var3}`);
-      ctx.reply(`4. ${firstQuestion.var4}`);
-
-      console.log("Первый вопрос отправлен пользователю:", firstQuestion);
-    });
-  } else {
+  if (!userState || userState.step !== "ready_for_quiz") {
     ctx.reply("Сначала предоставьте свое имя или начните с команды /start.");
+    return;
   }
+
+  if (isQuizProcessing) {
+    ctx.reply("Подождите, предыдущий запрос еще обрабатывается.");
+    return;
+  }
+
+  isQuizProcessing = true;
+
+  // Получаем текущий индекс вопроса
+  const currentQuestionIndex = userState.currentQuestionIndex || 0;
+
+  getQuestions((err, questions) => {
+    if (err || !questions || questions.length === 0) {
+      ctx.reply("Произошла ошибка при загрузке вопросов.");
+      isQuizProcessing = false;
+      return;
+    }
+
+    if (currentQuestionIndex >= questions.length) {
+      ctx.reply("Викторина завершена.");
+      updateUserState(userId, { ...userState, step: "completed_quiz" });
+      isQuizProcessing = false;
+      return;
+    }
+
+    const question = questions[currentQuestionIndex];
+
+    // Отправляем текущий вопрос пользователю
+    ctx.reply(`Вопрос: ${question.question}`);
+    ctx.reply(`1. ${question.var1}`);
+    ctx.reply(`2. ${question.var2}`);
+    ctx.reply(`3. ${question.var3}`);
+    ctx.reply(`4. ${question.var4}`);
+
+    // Обновляем состояние пользователя, увеличивая индекс
+    updateUserState(userId, {
+      ...userState,
+      currentQuestionIndex: currentQuestionIndex + 1,
+    });
+
+    isQuizProcessing = false;
+  });
 };
 
 module.exports = quizCommand;
